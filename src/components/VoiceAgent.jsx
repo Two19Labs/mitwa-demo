@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import AudioVisualizer from './AudioVisualizer';
 import WhatsAppPreview from './WhatsAppPreview';
+import ElevenLabsModal from './ElevenLabsModal';
 import { 
   createInitialBookingState, 
   processUserMessage, 
@@ -26,7 +27,14 @@ export default function VoiceAgent({
   const [agentStatus, setAgentStatus] = useState('idle');
   const [callDuration, setCallDuration] = useState(0);
   const [activeWhatsAppPayload, setActiveWhatsAppPayload] = useState(null);
-  const [voiceMode, setVoiceMode] = useState('swara_hindi'); // 'swara_hindi' | 'madhur_hindi' | 'neerja_english' | 'browser_native'
+  const [voiceMode, setVoiceMode] = useState(() => {
+    try {
+      return localStorage.getItem('mitwa_voice_mode') || 'elevenlabs_voice';
+    } catch (e) {
+      return 'elevenlabs_voice';
+    }
+  });
+  const [isElevenLabsModalOpen, setIsElevenLabsModalOpen] = useState(false);
 
   const [transcript, setTranscript] = useState([
     {
@@ -291,6 +299,16 @@ export default function VoiceAgent({
         />
       )}
 
+      {/* ElevenLabs Configuration Modal */}
+      <ElevenLabsModal
+        isOpen={isElevenLabsModalOpen}
+        onClose={() => setIsElevenLabsModalOpen(false)}
+        onSave={(cfg) => {
+          setVoiceMode('elevenlabs_voice');
+          speechService.setElevenLabsConfig(cfg.apiKey, cfg.voiceId);
+        }}
+      />
+
       {/* Top Section Header with Voice Engine Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-3.5 mb-3.5 gap-3 z-10">
         <div>
@@ -316,16 +334,33 @@ export default function VoiceAgent({
             <Globe className="w-3.5 h-3.5 text-cyan-400 mr-1.5 shrink-0" />
             <select
               value={voiceMode}
-              onChange={(e) => handleVoiceModeChange(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                handleVoiceModeChange(val);
+                if (val === 'elevenlabs_voice' && !localStorage.getItem('mitwa_elevenlabs_key')) {
+                  setIsElevenLabsModalOpen(true);
+                }
+              }}
               className="bg-transparent text-xs text-cyan-300 font-medium focus:outline-none cursor-pointer pr-1"
               title="Select Voice for Mitwa"
             >
+              <option value="elevenlabs_voice" className="bg-slate-900 text-white">⚡ ElevenLabs (Multilingual v2)</option>
               <option value="swara_hindi" className="bg-slate-900 text-white">🇮🇳 Swara (Natural Hindi Female)</option>
               <option value="madhur_hindi" className="bg-slate-900 text-white">🇮🇳 Madhur (Natural Hindi Male)</option>
               <option value="neerja_english" className="bg-slate-900 text-white">🇮🇳 Neerja (Indian English)</option>
               <option value="browser_native" className="bg-slate-900 text-white">💻 System Voice</option>
             </select>
           </div>
+
+          {/* ElevenLabs Quick Setup Button */}
+          <button
+            onClick={() => setIsElevenLabsModalOpen(true)}
+            title="Configure ElevenLabs API Key and Voice ID"
+            className="flex items-center gap-1 text-[11px] text-amber-300 hover:text-amber-200 px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition font-semibold"
+          >
+            <Sparkles className="w-3 h-3 text-amber-400" />
+            <span>ElevenLabs</span>
+          </button>
 
           {/* Test Voice Button */}
           <button

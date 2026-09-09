@@ -1,7 +1,6 @@
 /**
  * Web Speech & Neural Indian Voice Service
- * Powered by Microsoft Azure Edge Neural Voices (hi-IN-SwaraNeural & hi-IN-MadhurNeural)
- * Produces 100% authentic, human-grade Hindi and Hinglish pronunciation.
+ * Supports ElevenLabs Multilingual v2, Microsoft Azure Neural (Swara/Madhur), and Web Speech fallback.
  */
 
 class SpeechService {
@@ -11,8 +10,10 @@ class SpeechService {
     this.isSpeaking = false;
     this.muted = false;
     this.currentAudio = null;
-    this.voiceMode = 'swara_hindi'; // 'swara_hindi' | 'madhur_hindi' | 'neerja_english' | 'browser_native'
+    this.voiceMode = 'elevenlabs_voice'; // 'elevenlabs_voice' | 'swara_hindi' | 'madhur_hindi' | 'neerja_english' | 'browser_native'
     this.selectedLanguage = 'hi-IN';
+    this.elevenLabsKey = '';
+    this.elevenLabsVoiceId = 'ThT5KcBeYPX3keUQqHPh';
     this.onResultCallback = null;
     this.onStatusChangeCallback = null;
     this.speechSynthesis = typeof window !== 'undefined' ? window.speechSynthesis : null;
@@ -20,6 +21,34 @@ class SpeechService {
 
     this.initRecognition();
     this.loadVoices();
+    this.loadSavedConfig();
+  }
+
+  loadSavedConfig() {
+    if (typeof window === 'undefined') return;
+    try {
+      const savedKey = localStorage.getItem('mitwa_elevenlabs_key');
+      const savedVoice = localStorage.getItem('mitwa_elevenlabs_voice');
+      const savedMode = localStorage.getItem('mitwa_voice_mode');
+      if (savedKey) this.elevenLabsKey = savedKey;
+      if (savedVoice) this.elevenLabsVoiceId = savedVoice;
+      if (savedMode) this.voiceMode = savedMode;
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  setElevenLabsConfig(key, voiceId) {
+    this.elevenLabsKey = key;
+    this.elevenLabsVoiceId = voiceId;
+    this.voiceMode = 'elevenlabs_voice';
+    try {
+      localStorage.setItem('mitwa_elevenlabs_key', key);
+      localStorage.setItem('mitwa_elevenlabs_voice', voiceId);
+      localStorage.setItem('mitwa_voice_mode', 'elevenlabs_voice');
+    } catch (e) {
+      // ignore
+    }
   }
 
   loadVoices() {
@@ -83,6 +112,11 @@ class SpeechService {
 
   setVoiceMode(mode) {
     this.voiceMode = mode;
+    try {
+      localStorage.setItem('mitwa_voice_mode', mode);
+    } catch (e) {
+      // ignore
+    }
   }
 
   startListening(onResult, onStatusChange) {
@@ -122,9 +156,9 @@ class SpeechService {
   }
 
   /**
-   * Speak with Neural Indian Accent
+   * Speak Method
    */
-  speak(textOptions, onStart, onEnd) {
+  async speak(textOptions, onStart, onEnd) {
     if (this.muted) {
       if (onEnd) onEnd();
       return;
@@ -143,30 +177,102 @@ class SpeechService {
       spokenText = textOptions || '';
     }
 
-    // If browser_native selected explicitly
-    if (this.voiceMode === 'browser_native') {
-      this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
-      return;
+    const textToSpeak = phoneticHindi || spokenText;
+
+    // 1. ELEVENLABS MODE
+    if (this.voiceMode === 'elevenlabs_voice') {
+      try {
+        const headers = {};
+        if (this.elevenLabsKey) {
+          headers['xi-api-key'] = this.elevenLabsKey;
+        }
+
+        const voiceId = this.elevenLabsVoiceId || 'ThT5KcBeYPX3keUQqHPh';
+        const url = `/api/tts/elevenlabs?voice_id=${encodeURIComponent(voiceId)}&text=${encodeURIComponent(textToSpeak)}`;
+        
+        const res = await fetch(url, { headers });
+        if (res.ok) {
+          const blob = await res.blob();
+          const audioUrl = URL.createObjectURL(blob);
+          const audio = new Audio(audioUrl);
+          this.currentAudio = audio;
+
+          audio.onplay = () => {
+            this.isSpeaking = true;
+            if (onStart) onStart();
+            if (this.onStatusChangeCallback) this.onStatusChangeCallback('speaking');
+          };
+
+          audio.onended = () => {
+            this.isSpeaking = false;
+            this.currentAudio = null;
+            if (onEnd) onEnd();
+            if (this.onStatusChangeCallback) this.onStatusChangeCallback('idle');
+          };
+
+          audio.onerror = () => {
+            this.fallbackSwaraSpeak(textToSpeak, onStart, onEnd);
+          };
+
+          await audio.play();
+          return;
+        } else {
+          console.warn('ElevenLabs returned non-200, falling back to Swara Neural voice');
+          this.fallbackSwaraSpeak(textToSpeak, onStart, onEnd);
+          return;
+        }
+      } catch (err) {
+        console.warn('ElevenLabs audio error, falling back to Swara Neural:', err);
+        this.fallbackSwaraSpeak(textToSpeak, onStart, onEnd);
+        return;
+      }
     }
 
-    // Map to Azure Edge Neural Voices
-    let voiceParam = 'hi-IN-SwaraNeural';
-    let textToSend = phoneticHindi || spokenText;
+    // 2. AZURE NEURAL EDGE MODES
+    if (this.voiceMode === 'swara_hindi' || this.voiceMode === 'madhur_hindi' || this.voiceMode === 'neerja_english') {
+      let voiceParam = 'hi-IN-SwaraNeural';
+      if (this.voiceMode === 'madhur_hindi') voiceParam = 'hi-IN-MadhurNeural';
+      if (this.voiceMode === 'neerja_english') voiceParam = 'en-IN-NeerjaNeural';
 
-    if (this.voiceMode === 'madhur_hindi') {
-      voiceParam = 'hi-IN-MadhurNeural';
-      textToSend = phoneticHindi || spokenText;
-    } else if (this.voiceMode === 'neerja_english') {
-      voiceParam = 'en-IN-NeerjaNeural';
-      textToSend = spokenText;
-    } else {
-      // Default: Swara Neural (Highest quality Hindi female voice)
-      voiceParam = 'hi-IN-SwaraNeural';
-      textToSend = phoneticHindi || spokenText;
+      try {
+        const url = `/api/tts?voice=${encodeURIComponent(voiceParam)}&text=${encodeURIComponent(textToSpeak)}`;
+        const audio = new Audio(url);
+        this.currentAudio = audio;
+
+        audio.onplay = () => {
+          this.isSpeaking = true;
+          if (onStart) onStart();
+          if (this.onStatusChangeCallback) this.onStatusChangeCallback('speaking');
+        };
+
+        audio.onended = () => {
+          this.isSpeaking = false;
+          this.currentAudio = null;
+          if (onEnd) onEnd();
+          if (this.onStatusChangeCallback) this.onStatusChangeCallback('idle');
+        };
+
+        audio.onerror = () => {
+          this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+        };
+
+        audio.play().catch(() => {
+          this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+        });
+        return;
+      } catch (e) {
+        this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+        return;
+      }
     }
 
+    // 3. BROWSER SAPI FALLBACK
+    this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+  }
+
+  fallbackSwaraSpeak(text, onStart, onEnd) {
     try {
-      const url = `/api/tts?voice=${encodeURIComponent(voiceParam)}&text=${encodeURIComponent(textToSend)}`;
+      const url = `/api/tts?voice=hi-IN-SwaraNeural&text=${encodeURIComponent(text)}`;
       const audio = new Audio(url);
       this.currentAudio = audio;
 
@@ -183,18 +289,15 @@ class SpeechService {
         if (this.onStatusChangeCallback) this.onStatusChangeCallback('idle');
       };
 
-      audio.onerror = (err) => {
-        console.warn('Audio endpoint playback error, fallback to browser TTS:', err);
-        this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+      audio.onerror = () => {
+        this.fallbackBrowserSpeak(text, onStart, onEnd);
       };
 
-      audio.play().catch(err => {
-        console.warn('Direct play error:', err);
-        this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+      audio.play().catch(() => {
+        this.fallbackBrowserSpeak(text, onStart, onEnd);
       });
     } catch (e) {
-      console.warn('TTS streaming exception:', e);
-      this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+      this.fallbackBrowserSpeak(text, onStart, onEnd);
     }
   }
 
