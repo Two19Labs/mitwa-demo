@@ -1,13 +1,14 @@
 /**
  * MITWA Conversational Dialog & NLP Engine
  * Built for Indian Booking-led businesses (Restaurant Reservation MVP)
- * Supports English, Hindi, and Hinglish understanding and natural responses.
+ * Supports English, Hindi, and Hinglish with authentic Indian phonetic speech.
  */
 
 export const VENUES = {
   bukhara: {
     id: 'bukhara',
     name: "Bukhara Grill & Lounge",
+    hindiName: "बोखारा ग्रिल एंड लाउंज",
     city: "Bengaluru",
     location: "100 Ft Road, Indiranagar, Bengaluru",
     cuisine: "North Indian & Mughlai Fine Dine",
@@ -19,6 +20,7 @@ export const VENUES = {
   punjab_grill: {
     id: 'punjab_grill',
     name: "Punjab Grill & Bar",
+    hindiName: "पंजाब ग्रिल एंड बार",
     city: "Gurgaon",
     location: "Cyber Hub, DLF Phase 2, Gurgaon",
     cuisine: "North Indian Tandoori & Cocktails",
@@ -30,6 +32,7 @@ export const VENUES = {
   opedro: {
     id: 'opedro',
     name: "O Pedro Coastal Kitchen",
+    hindiName: "ओ पेड्रो कोस्टल किचन",
     city: "Mumbai",
     location: "Unit 2, Jet Airways Godrej BKC, Mumbai",
     cuisine: "Goan & Portuguese Coastal Dining",
@@ -52,7 +55,7 @@ export function createInitialBookingState() {
     phone: null,
     isConfirmed: false,
     rejected8pm: false,
-    language: 'hinglish', // 'hinglish' | 'english' | 'hindi'
+    language: 'hinglish',
     awaitingField: null,
     history: []
   };
@@ -156,26 +159,41 @@ export function extractEntities(text, currentState = {}) {
   // 2. DATE EXTRACTION
   if (lower.includes('aaj raat') || lower.includes('tonight')) {
     extracted.date = 'Today, Tonight';
+    extracted.dateHindi = 'आज रात';
   } else if (lower.includes('aaj') || lower.includes('today') || lower.includes('this evening')) {
     extracted.date = 'Today';
+    extracted.dateHindi = 'आज';
   } else if (lower.includes('kal raat') || lower.includes('tomorrow night')) {
     extracted.date = 'Tomorrow Night';
+    extracted.dateHindi = 'कल रात';
   } else if (lower.includes('kal') || lower.includes('tomorrow')) {
     extracted.date = 'Tomorrow';
+    extracted.dateHindi = 'कल';
   } else if (lower.includes('parson') || lower.includes('day after tomorrow')) {
     extracted.date = 'Day After Tomorrow';
+    extracted.dateHindi = 'परसों';
   } else if (lower.includes('sunday') || lower.includes('itwar')) {
     extracted.date = 'This Sunday';
+    extracted.dateHindi = 'रविवार को';
   } else if (lower.includes('saturday') || lower.includes('shanivar')) {
     extracted.date = 'This Saturday';
+    extracted.dateHindi = 'शनिवार को';
   } else if (lower.includes('friday') || lower.includes('shukravar')) {
     extracted.date = 'This Friday';
+    extracted.dateHindi = 'शुक्रवार को';
   }
 
   if (!extracted.date && currentState.awaitingField === 'date') {
-    if (lower.includes('today') || lower.includes('aaj')) extracted.date = 'Today';
-    else if (lower.includes('tomorrow') || lower.includes('kal')) extracted.date = 'Tomorrow';
-    else extracted.date = text.trim();
+    if (lower.includes('today') || lower.includes('aaj')) {
+      extracted.date = 'Today';
+      extracted.dateHindi = 'आज';
+    } else if (lower.includes('tomorrow') || lower.includes('kal')) {
+      extracted.date = 'Tomorrow';
+      extracted.dateHindi = 'कल';
+    } else {
+      extracted.date = text.trim();
+      extracted.dateHindi = text.trim();
+    }
   }
 
   // 3. TIME EXTRACTION & 8:00 PM CONSTRAINT
@@ -255,7 +273,6 @@ export function extractEntities(text, currentState = {}) {
     extracted.name = "Vikram Malhotra";
   }
 
-  // If explicitly waiting for name and user provided a concise answer
   if (!extracted.name && currentState.awaitingField === 'name') {
     if (!extracted.phone && !extracted.guests) {
       const clean = text.replace(/^(mera naam|my name is|naam|it is|it's)\s*/i, '').trim();
@@ -294,20 +311,21 @@ export function processUserMessage(currentState, userInput, currentVenue = RESTA
   const updatedState = { ...currentState };
   updatedState.language = lang;
 
-  // Extract entities from user speech
   const entities = extractEntities(userInput, updatedState);
 
-  // Merge extracted entities into state
   if (entities.name && !updatedState.name) updatedState.name = entities.name;
   if (entities.guests && !updatedState.guests) updatedState.guests = entities.guests;
-  if (entities.date && !updatedState.date) updatedState.date = entities.date;
+  if (entities.date && !updatedState.date) {
+    updatedState.date = entities.date;
+    updatedState.dateHindi = entities.dateHindi || entities.date;
+  }
   if (entities.phone && !updatedState.phone) updatedState.phone = entities.phone;
 
   // Handling time & 8:00 PM availability constraint
   let slotNotice = null;
   if (entities.requestedUnavailable8pm || (entities.time === '8:00 PM')) {
     updatedState.rejected8pm = true;
-    updatedState.time = null; // Do not accept 8:00 PM!
+    updatedState.time = null;
     slotNotice = '8pm_unavailable';
   } else if (entities.time && (currentVenue.availableSlots.includes(entities.time) || entities.time === '1:30 PM')) {
     updatedState.time = entities.time;
@@ -329,16 +347,21 @@ export function processUserMessage(currentState, userInput, currentVenue = RESTA
     const ackDate = updatedState.date ? `${updatedState.date} ` : '';
 
     let responseText = '';
+    let speechHindi = '';
+
     if (lang === 'hinglish' || lang === 'hindi') {
       responseText = `Maaf kijiye, ${ackDate}raat 8:00 PM ka slot completely booked hai! Lekin hamare paas 7:30 PM aur 8:30 PM par tables available hain. Kya 7:30 PM ya 8:30 PM me se koi slot aapko chalega?`;
+      speechHindi = `माफ़ कीजिये, आज रात 8:00 बजे का स्लॉट पूरी तरह बुक है! लेकिन हमारे पास 7:30 और 8:30 बजे टेबल खाली हैं। क्या 7:30 या 8:30 में से कोई स्लॉट आपको चलेगा?`;
     } else {
       responseText = `I'm sorry, our 8:00 PM slot is currently fully booked! We do have tables available at 7:30 PM and 8:30 PM. Would either 7:30 PM or 8:30 PM work for you?`;
+      speechHindi = responseText;
     }
 
     return {
       state: updatedState,
       reply: responseText,
       speech: responseText,
+      speechHindi: speechHindi,
       bookingCompleted: false
     };
   }
@@ -355,10 +378,14 @@ export function processUserMessage(currentState, userInput, currentVenue = RESTA
     const phone = updatedState.phone;
 
     let responseText = '';
+    let speechHindi = '';
+
     if (lang === 'hinglish' || lang === 'hindi') {
       responseText = `Bahut badhiya ${customerName} ji! Aapki table confirm ho gayi hai: ${formattedGuests} ke liye, ${formattedDate} ko shaam ${formattedTime}. Confirmation SMS aur WhatsApp number ${phone} par bhej diya gaya hai. ${currentVenue.name} me aapka swagat hai!`;
+      speechHindi = `बहुत बढ़िया ${customerName} जी! आपकी टेबल कन्फर्म हो गई है, ${updatedState.guests} लोगों के लिए, ${updatedState.dateHindi || 'आज रात'} शाम ${formattedTime} बजे। कन्फर्मेशन एसएमएस और वॉट्सऐप आपके नंबर पर भेज दिया गया है। ${currentVenue.hindiName || currentVenue.name} में आपका स्वागत है!`;
     } else {
       responseText = `Awesome, ${customerName}! Your table for ${formattedGuests} on ${formattedDate} at ${formattedTime} is officially confirmed. A confirmation WhatsApp has been sent to ${phone}. We look forward to hosting you at ${currentVenue.name}!`;
+      speechHindi = responseText;
     }
 
     const bookingId = `MITWA-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -384,6 +411,7 @@ export function processUserMessage(currentState, userInput, currentVenue = RESTA
       state: updatedState,
       reply: responseText,
       speech: responseText,
+      speechHindi: speechHindi,
       bookingCompleted: true,
       booking: completedBooking,
       whatsApp: whatsAppPayload
@@ -395,44 +423,61 @@ export function processUserMessage(currentState, userInput, currentVenue = RESTA
   updatedState.awaitingField = nextField;
 
   let ack = '';
+  let ackHindi = '';
+
   if (entities.time) {
     ack = lang === 'hinglish' ? `Badhiya, ${updatedState.time} ka slot book karte hain. ` : `Perfect, reserved for ${updatedState.time}. `;
+    ackHindi = `बढ़िया, ${updatedState.time} का स्लॉट बुक करते हैं। `;
   } else if (entities.guests && entities.date) {
     ack = lang === 'hinglish' ? `Zaroor! ${updatedState.guests} logon ke liye ${updatedState.date}. ` : `Certainly! For ${updatedState.guests} guests on ${updatedState.date}. `;
+    ackHindi = `ज़रूर! ${updatedState.guests} लोगों के लिए ${updatedState.dateHindi || 'आज रात'}। `;
   } else if (entities.guests) {
     ack = lang === 'hinglish' ? `Ji bilkul, ${updatedState.guests} logon ke liye. ` : `Great, for ${updatedState.guests} guests. `;
+    ackHindi = `जी बिल्कुल, ${updatedState.guests} लोगों के लिए। `;
   }
 
   let responseText = '';
+  let speechHindi = '';
+
   if (nextField === 'guests') {
     if (lang === 'hinglish' || lang === 'hindi') {
       responseText = `${ack}Kitne logon ke liye table book karni hai?`;
+      speechHindi = `${ackHindi}कितने लोगों के लिए टेबल बुक करनी है?`;
     } else {
       responseText = `${ack}How many guests will be joining?`;
+      speechHindi = responseText;
     }
   } else if (nextField === 'date') {
     if (lang === 'hinglish' || lang === 'hindi') {
       responseText = `${ack}Table kis din ke liye chahiye — aaj raat ya kisi aur date par?`;
+      speechHindi = `${ackHindi}टेबल किस दिन के लिए चाहिए — आज रात या किसी और तारीख पर?`;
     } else {
       responseText = `${ack}Which date would you like the reservation for — tonight or another day?`;
+      speechHindi = responseText;
     }
   } else if (nextField === 'time') {
     if (lang === 'hinglish' || lang === 'hindi') {
       responseText = `${ack}Aapka preferred time kya rahega? Hamare paas 7:00 PM, 7:30 PM, 8:30 PM aur 9:00 PM ke slots available hain.`;
+      speechHindi = `${ackHindi}आपका पसंदीदा समय क्या रहेगा? हमारे पास 7:00, 7:30, 8:30 और 9:00 बजे के स्लॉट खाली हैं।`;
     } else {
       responseText = `${ack}What time would you prefer? We have slots open at 7:00 PM, 7:30 PM, 8:30 PM, and 9:00 PM.`;
+      speechHindi = responseText;
     }
   } else if (nextField === 'name') {
     if (lang === 'hinglish' || lang === 'hindi') {
       responseText = `${ack}Kripya apna shubh naam bata dijiye jiske naam par booking karni hai?`;
+      speechHindi = `${ackHindi}कृपया अपना शुभ नाम बता दीजिये जिसके नाम पर बुकिंग करनी है?`;
     } else {
       responseText = `${ack}May I have your name for the reservation?`;
+      speechHindi = responseText;
     }
   } else if (nextField === 'phone') {
     if (lang === 'hinglish' || lang === 'hindi') {
       responseText = `${ack}Aur confirmation SMS aur WhatsApp ke liye aapka 10-digit mobile number kya hai?`;
+      speechHindi = `${ackHindi}और कन्फर्मेशन एसएमएस और वॉट्सऐप के लिए आपका दस अंकों का मोबाइल नंबर क्या है?`;
     } else {
       responseText = `${ack}And your 10-digit mobile number for the booking confirmation?`;
+      speechHindi = responseText;
     }
   }
 
@@ -440,6 +485,7 @@ export function processUserMessage(currentState, userInput, currentVenue = RESTA
     state: updatedState,
     reply: responseText,
     speech: responseText,
+    speechHindi: speechHindi,
     bookingCompleted: false
   };
 }

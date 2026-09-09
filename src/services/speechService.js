@@ -1,6 +1,7 @@
 /**
- * Web Speech API Service
- * Handles Speech-to-Text (SpeechRecognition) and Text-to-Speech (SpeechSynthesis)
+ * Web Speech & Indian Voice Audio Service
+ * Provides authentic, natural Indian voice for Hindi, Hinglish, and Indian English.
+ * Uses high-fidelity Indian audio streaming with fallback to Web Speech API.
  */
 
 class SpeechService {
@@ -9,13 +10,13 @@ class SpeechService {
     this.isListening = false;
     this.isSpeaking = false;
     this.muted = false;
-    this.selectedLanguage = 'en-IN'; // 'en-IN' or 'hi-IN'
-    this.voices = [];
+    this.currentAudio = null;
+    this.voiceMode = 'indian_hindi'; // 'indian_hindi' | 'indian_english' | 'browser_native'
+    this.selectedLanguage = 'hi-IN'; // 'hi-IN' or 'en-IN'
     this.onResultCallback = null;
     this.onStatusChangeCallback = null;
-    this.onSpeakStartCallback = null;
-    this.onSpeakEndCallback = null;
     this.speechSynthesis = typeof window !== 'undefined' ? window.speechSynthesis : null;
+    this.voices = [];
 
     this.initRecognition();
     this.loadVoices();
@@ -36,13 +37,13 @@ class SpeechService {
     if (typeof window === 'undefined') return;
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      console.warn('SpeechRecognition API not supported in this browser.');
+      console.warn('SpeechRecognition API not supported.');
       return;
     }
 
     try {
       this.recognition = new SpeechRecognition();
-      this.recognition.continuous = false; // Turn-based for precision dialog
+      this.recognition.continuous = false;
       this.recognition.interimResults = false;
       this.recognition.lang = this.selectedLanguage;
 
@@ -60,7 +61,7 @@ class SpeechService {
       };
 
       this.recognition.onerror = (event) => {
-        console.warn('Speech recognition error:', event.error);
+        console.warn('Speech recognition notice:', event.error);
         this.isListening = false;
         if (this.onStatusChangeCallback) this.onStatusChangeCallback('idle');
       };
@@ -81,6 +82,10 @@ class SpeechService {
     if (this.recognition) {
       this.recognition.lang = langCode;
     }
+  }
+
+  setVoiceMode(mode) {
+    this.voiceMode = mode;
   }
 
   startListening(onResult, onStatusChange) {
@@ -104,9 +109,8 @@ class SpeechService {
       this.recognition.start();
       return true;
     } catch (err) {
-      // If already started, ignore or abort and retry
       if (err.name !== 'InvalidStateError') {
-        console.warn('Recognition start error:', err);
+        console.warn('Recognition start warning:', err);
       }
       return false;
     }
@@ -123,23 +127,83 @@ class SpeechService {
     this.isListening = false;
   }
 
-  speak(text, onStart, onEnd) {
-    if (!this.speechSynthesis) {
-      if (onEnd) onEnd();
-      return;
-    }
-
+  /**
+   * Main Speak Method
+   * Prioritizes high-fidelity authentic Indian voice (Hindi/Hinglish)
+   */
+  speak(textOptions, onStart, onEnd) {
     if (this.muted) {
       if (onEnd) onEnd();
       return;
     }
 
-    // Temporarily pause recognition to prevent Mitwa from talking to itself
+    // Stop listening while speaking to prevent echo
     this.stopListening();
-    this.speechSynthesis.cancel();
+    this.stopSpeaking();
 
+    // Extract speech text and phonetics
+    let spokenText = '';
+    let phoneticHindi = '';
+
+    if (typeof textOptions === 'object' && textOptions !== null) {
+      spokenText = textOptions.speech || textOptions.reply || '';
+      phoneticHindi = textOptions.speechHindi || '';
+    } else {
+      spokenText = textOptions || '';
+    }
+
+    // If using Indian voice mode, stream via authentic Indian voice endpoint
+    if (this.voiceMode !== 'browser_native') {
+      const targetLang = this.voiceMode === 'indian_english' ? 'en-IN' : 'hi';
+      const textToStream = (targetLang === 'hi' && phoneticHindi) ? phoneticHindi : spokenText;
+
+      try {
+        const audioUrl = `/api/tts?ie=UTF-8&tl=${targetLang}&client=tw-ob&q=${encodeURIComponent(textToStream)}`;
+        const audio = new Audio(audioUrl);
+        this.currentAudio = audio;
+
+        audio.onplay = () => {
+          this.isSpeaking = true;
+          if (onStart) onStart();
+          if (this.onStatusChangeCallback) this.onStatusChangeCallback('speaking');
+        };
+
+        audio.onended = () => {
+          this.isSpeaking = false;
+          this.currentAudio = null;
+          if (onEnd) onEnd();
+          if (this.onStatusChangeCallback) this.onStatusChangeCallback('idle');
+        };
+
+        audio.onerror = (e) => {
+          console.warn('Audio stream fallback to browser speech synthesis:', e);
+          this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+        };
+
+        audio.play().catch(err => {
+          console.warn('Direct audio play error:', err);
+          this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+        });
+
+        return;
+      } catch (e) {
+        console.warn('Audio engine error, using fallback:', e);
+      }
+    }
+
+    // Fallback to browser SpeechSynthesis
+    this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+  }
+
+  fallbackBrowserSpeak(text, onStart, onEnd) {
+    if (!this.speechSynthesis) {
+      if (onEnd) onEnd();
+      return;
+    }
+
+    this.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
+    utterance.rate = 0.95;
     utterance.pitch = 1.05;
 
     // Pick best matching voice
@@ -148,7 +212,7 @@ class SpeechService {
     }
 
     const indianVoice = this.voices.find(v => 
-      (v.lang.includes('en-IN') || v.lang.includes('hi-IN') || v.name.toLowerCase().includes('india') || v.name.toLowerCase().includes('heera') || v.name.toLowerCase().includes('neerja') || v.name.toLowerCase().includes('ravi') || v.name.toLowerCase().includes('google हिन्दी'))
+      (v.lang.includes('IN') || v.lang.includes('hi') || v.name.toLowerCase().includes('india') || v.name.toLowerCase().includes('heera') || v.name.toLowerCase().includes('swara') || v.name.toLowerCase().includes('neerja') || v.name.toLowerCase().includes('ravi') || v.name.toLowerCase().includes('google हिन्दी'))
     );
 
     if (indianVoice) {
@@ -177,6 +241,15 @@ class SpeechService {
   }
 
   stopSpeaking() {
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause();
+        this.currentAudio.currentTime = 0;
+      } catch (e) {
+        // ignore
+      }
+      this.currentAudio = null;
+    }
     if (this.speechSynthesis) {
       this.speechSynthesis.cancel();
     }

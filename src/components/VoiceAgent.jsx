@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Mic, MicOff, PhoneCall, PhoneOff, Send, Volume2, Sparkles, 
   CheckCircle2, Clock, Users, Calendar, Phone, User, AlertCircle, RefreshCw,
-  MessageSquare, Play, ShieldCheck
+  MessageSquare, Play, ShieldCheck, Settings2, Globe
 } from 'lucide-react';
 import AudioVisualizer from './AudioVisualizer';
 import WhatsAppPreview from './WhatsAppPreview';
@@ -23,15 +23,17 @@ export default function VoiceAgent({
 }) {
   const [bookingState, setBookingState] = useState(createInitialBookingState);
   const [callActive, setCallActive] = useState(false);
-  const [agentStatus, setAgentStatus] = useState('idle'); // 'idle' | 'listening' | 'processing' | 'speaking'
+  const [agentStatus, setAgentStatus] = useState('idle');
   const [callDuration, setCallDuration] = useState(0);
   const [activeWhatsAppPayload, setActiveWhatsAppPayload] = useState(null);
+  const [voiceMode, setVoiceMode] = useState('indian_hindi'); // 'indian_hindi' | 'indian_english' | 'browser_native'
 
   const [transcript, setTranscript] = useState([
     {
       id: 'welcome',
       sender: 'mitwa',
       text: `Namaste! Welcome to ${currentVenue.name}. Main Mitwa hoon, aapki AI reservation assistant. Aaj aapke liye kya book karun?`,
+      speechHindi: `नमस्ते! ${currentVenue.hindiName || currentVenue.name} में आपका स्वागत है। मैं मितवा हूँ, आपकी एआई रिज़र्वेशन असिस्टेंट। आज आपके लिए क्या बुक करूँ?`,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -48,11 +50,18 @@ export default function VoiceAgent({
           id: 'welcome-venue-update',
           sender: 'mitwa',
           text: `Namaste! Welcome to ${currentVenue.name} (${currentVenue.city}). Main Mitwa hoon, aapki AI reservation assistant. Aaj aapke liye kya book karun?`,
+          speechHindi: `नमस्ते! ${currentVenue.hindiName || currentVenue.name} में आपका स्वागत है। मैं मितवा हूँ, आपकी एआई रिज़र्वेशन असिस्टेंट। आज आपके लिए क्या बुक करूँ?`,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
     }
   }, [currentVenue]);
+
+  // Sync voice mode with service
+  const handleVoiceModeChange = (mode) => {
+    setVoiceMode(mode);
+    speechService.setVoiceMode(mode);
+  };
 
   // Call timer effect
   useEffect(() => {
@@ -67,7 +76,6 @@ export default function VoiceAgent({
     return () => clearInterval(timerRef.current);
   }, [callActive]);
 
-  // Auto-scroll chat to bottom
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript, agentStatus]);
@@ -78,14 +86,12 @@ export default function VoiceAgent({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Handle incoming user message
   const handleUserMessage = (userText) => {
     if (!userText || !userText.trim()) return;
 
     const trimmed = userText.trim();
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Add user message to transcript
     const userMsgId = `user-${Date.now()}`;
     setTranscript(prev => [...prev, {
       id: userMsgId,
@@ -96,7 +102,6 @@ export default function VoiceAgent({
 
     setAgentStatus('processing');
 
-    // Process dialog with NLP engine
     setTimeout(() => {
       const result = processUserMessage(bookingState, trimmed, currentVenue);
       setBookingState(result.state);
@@ -106,11 +111,11 @@ export default function VoiceAgent({
         id: mitwaMsgId,
         sender: 'mitwa',
         text: result.reply,
+        speechHindi: result.speechHindi,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         bookingCompleted: result.bookingCompleted
       }]);
 
-      // If reservation confirmed
       if (result.bookingCompleted && result.booking) {
         onBookingConfirmed(result.booking);
         if (result.whatsApp) {
@@ -127,11 +132,11 @@ export default function VoiceAgent({
         }
       }
 
-      // Speak Mitwa's response aloud
+      // Speak using authentic Indian voice engine
       if (!isMuted) {
         setAgentStatus('speaking');
         speechService.speak(
-          result.speech,
+          { speech: result.speech, speechHindi: result.speechHindi },
           () => setAgentStatus('speaking'),
           () => {
             setAgentStatus('idle');
@@ -177,7 +182,7 @@ export default function VoiceAgent({
     if (transcript.length === 1 && !isMuted) {
       setAgentStatus('speaking');
       speechService.speak(
-        transcript[0].text,
+        { speech: transcript[0].text, speechHindi: transcript[0].speechHindi },
         () => setAgentStatus('speaking'),
         () => {
           setAgentStatus('idle');
@@ -207,35 +212,31 @@ export default function VoiceAgent({
         id: 'welcome-reset',
         sender: 'mitwa',
         text: `Namaste! ${currentVenue.name} me aapka swagat hai. Main Mitwa hoon. Aapko kab aur kitne logon ke liye table reserve karni hai?`,
+        speechHindi: `नमस्ते! ${currentVenue.hindiName || currentVenue.name} में आपका स्वागत है। मैं मितवा हूँ। आपको कब और कितने लोगों के लिए टेबल रिज़र्व करनी है?`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
     ]);
     setActiveWhatsAppPayload(null);
   };
 
-  // Automated 3-Step Demo Script for Pitch Presentations
   const runAutoDemoFlow = () => {
     resetConversation();
     setCallActive(true);
     if (onCallIncrement) onCallIncrement();
 
-    // Step 1: 8 PM prompt
     setTimeout(() => {
       handleUserMessage("Bhai aaj raat 8 baje 4 logon ke liye table chahiye.");
     }, 1000);
 
-    // Step 2: Accept 7:30 PM alternative
     setTimeout(() => {
       handleUserMessage("7:30 PM theek rahega, table book kar do.");
     }, 3800);
 
-    // Step 3: Provide Name & Phone
     setTimeout(() => {
       handleUserMessage("Mera naam Rahul Sharma hai aur mobile number 9876543210 hai.");
     }, 6600);
   };
 
-  // Register with parent if requested
   useEffect(() => {
     if (registerAutoDemo) {
       registerAutoDemo(runAutoDemoFlow);
@@ -250,10 +251,10 @@ export default function VoiceAgent({
     handleUserMessage(text);
   };
 
-  const replayMessage = (text) => {
+  const replayMessage = (msg) => {
     setAgentStatus('speaking');
     speechService.speak(
-      text,
+      { speech: msg.text, speechHindi: msg.speechHindi },
       () => setAgentStatus('speaking'),
       () => setAgentStatus('idle')
     );
@@ -280,11 +281,9 @@ export default function VoiceAgent({
 
   return (
     <div className="flex flex-col h-full rounded-3xl glass-panel p-5 lg:p-6 border border-cyan-500/20 shadow-2xl relative overflow-hidden">
-      {/* Background ambient glow */}
       <div className="absolute top-0 right-0 w-72 h-72 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-72 h-72 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* WhatsApp simulated modal preview */}
       {activeWhatsAppPayload && (
         <WhatsAppPreview
           payload={activeWhatsAppPayload}
@@ -292,8 +291,8 @@ export default function VoiceAgent({
         />
       )}
 
-      {/* Top Section Header */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-3.5 mb-3.5 z-10">
+      {/* Top Section Header with Voice Engine Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-3.5 mb-3.5 gap-3 z-10">
         <div>
           <div className="flex items-center gap-2">
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
@@ -312,7 +311,21 @@ export default function VoiceAgent({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Quick Auto Demo for Pitching */}
+          {/* Voice Accent Switcher */}
+          <div className="relative flex items-center bg-slate-900/90 border border-slate-800 rounded-xl px-2 py-1">
+            <Globe className="w-3.5 h-3.5 text-cyan-400 mr-1.5 shrink-0" />
+            <select
+              value={voiceMode}
+              onChange={(e) => handleVoiceModeChange(e.target.value)}
+              className="bg-transparent text-xs text-cyan-300 font-medium focus:outline-none cursor-pointer pr-1"
+              title="Select Voice Accent for Mitwa"
+            >
+              <option value="indian_hindi" className="bg-slate-900 text-white">🇮🇳 Natural Hindi (Hinglish)</option>
+              <option value="indian_english" className="bg-slate-900 text-white">🇮🇳 Indian English Accent</option>
+              <option value="browser_native" className="bg-slate-900 text-white">💻 System Voice</option>
+            </select>
+          </div>
+
           <button
             onClick={runAutoDemoFlow}
             title="Auto-play full 3-turn reservation scenario for live pitch"
@@ -388,7 +401,7 @@ export default function VoiceAgent({
             {agentStatus === 'speaking' && (
               <>
                 <Volume2 className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-                <span className="text-cyan-300">Mitwa is speaking...</span>
+                <span className="text-cyan-300">Mitwa is speaking (Indian Voice)...</span>
               </>
             )}
             {agentStatus === 'processing' && (
@@ -438,7 +451,6 @@ export default function VoiceAgent({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
-          {/* Guests */}
           <div className={`p-2 rounded-xl border ${bookingState.guests ? 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
             <div className="flex items-center gap-1 text-[10px] text-slate-400">
               <Users className="w-3 h-3" /> Guests
@@ -448,7 +460,6 @@ export default function VoiceAgent({
             </div>
           </div>
 
-          {/* Date */}
           <div className={`p-2 rounded-xl border ${bookingState.date ? 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
             <div className="flex items-center gap-1 text-[10px] text-slate-400">
               <Calendar className="w-3 h-3" /> Date
@@ -458,7 +469,6 @@ export default function VoiceAgent({
             </div>
           </div>
 
-          {/* Time */}
           <div className={`p-2 rounded-xl border ${
             bookingState.time 
               ? 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200' 
@@ -474,7 +484,6 @@ export default function VoiceAgent({
             </div>
           </div>
 
-          {/* Name */}
           <div className={`p-2 rounded-xl border ${bookingState.name ? 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
             <div className="flex items-center gap-1 text-[10px] text-slate-400">
               <User className="w-3 h-3" /> Name
@@ -484,7 +493,6 @@ export default function VoiceAgent({
             </div>
           </div>
 
-          {/* Phone */}
           <div className={`p-2 rounded-xl border ${bookingState.phone ? 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
             <div className="flex items-center gap-1 text-[10px] text-slate-400">
               <Phone className="w-3 h-3" /> Phone
@@ -526,16 +534,15 @@ export default function VoiceAgent({
               >
                 <p data-testid="chat-message-text">{msg.text}</p>
 
-                {/* Replay audio button for Mitwa messages */}
                 {!isUser && (
                   <div className="mt-2 flex items-center gap-3">
                     <button
-                      onClick={() => replayMessage(msg.text)}
+                      onClick={() => replayMessage(msg)}
                       className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition"
-                      title="Listen aloud"
+                      title="Listen with Indian Voice"
                     >
                       <Volume2 className="w-3 h-3" />
-                      <span>Listen again</span>
+                      <span>Speak aloud</span>
                     </button>
                     {msg.bookingCompleted && activeWhatsAppPayload && (
                       <button
