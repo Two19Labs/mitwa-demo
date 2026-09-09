@@ -26,7 +26,7 @@ export default function VoiceAgent({
   const [agentStatus, setAgentStatus] = useState('idle');
   const [callDuration, setCallDuration] = useState(0);
   const [activeWhatsAppPayload, setActiveWhatsAppPayload] = useState(null);
-  const [voiceMode, setVoiceMode] = useState('indian_hindi'); // 'indian_hindi' | 'indian_english' | 'browser_native'
+  const [voiceMode, setVoiceMode] = useState('swara_hindi'); // 'swara_hindi' | 'madhur_hindi' | 'neerja_english' | 'browser_native'
 
   const [transcript, setTranscript] = useState([
     {
@@ -310,7 +310,7 @@ export default function VoiceAgent({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Voice Accent Switcher */}
           <div className="relative flex items-center bg-slate-900/90 border border-slate-800 rounded-xl px-2 py-1">
             <Globe className="w-3.5 h-3.5 text-cyan-400 mr-1.5 shrink-0" />
@@ -318,13 +318,33 @@ export default function VoiceAgent({
               value={voiceMode}
               onChange={(e) => handleVoiceModeChange(e.target.value)}
               className="bg-transparent text-xs text-cyan-300 font-medium focus:outline-none cursor-pointer pr-1"
-              title="Select Voice Accent for Mitwa"
+              title="Select Voice for Mitwa"
             >
-              <option value="indian_hindi" className="bg-slate-900 text-white">🇮🇳 Natural Hindi (Hinglish)</option>
-              <option value="indian_english" className="bg-slate-900 text-white">🇮🇳 Indian English Accent</option>
+              <option value="swara_hindi" className="bg-slate-900 text-white">🇮🇳 Swara (Natural Hindi Female)</option>
+              <option value="madhur_hindi" className="bg-slate-900 text-white">🇮🇳 Madhur (Natural Hindi Male)</option>
+              <option value="neerja_english" className="bg-slate-900 text-white">🇮🇳 Neerja (Indian English)</option>
               <option value="browser_native" className="bg-slate-900 text-white">💻 System Voice</option>
             </select>
           </div>
+
+          {/* Test Voice Button */}
+          <button
+            onClick={() => {
+              speechService.speak(
+                {
+                  speech: "Namaste! Main Mitwa hoon. Aapke liye table kab book karun?",
+                  speechHindi: "नमस्ते! मैं मितवा हूँ, बोखारा ग्रिल से। आपके लिए टेबल कब बुक करूँ?"
+                },
+                () => setAgentStatus('speaking'),
+                () => setAgentStatus('idle')
+              );
+            }}
+            title="Hear a quick voice sample"
+            className="flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition font-semibold"
+          >
+            <Volume2 className="w-3 h-3" />
+            <span>Test Voice</span>
+          </button>
 
           <button
             onClick={runAutoDemoFlow}

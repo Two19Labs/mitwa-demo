@@ -1,7 +1,7 @@
 /**
- * Web Speech & Indian Voice Audio Service
- * Provides authentic, natural Indian voice for Hindi, Hinglish, and Indian English.
- * Uses high-fidelity Indian audio streaming with fallback to Web Speech API.
+ * Web Speech & Neural Indian Voice Service
+ * Powered by Microsoft Azure Edge Neural Voices (hi-IN-SwaraNeural & hi-IN-MadhurNeural)
+ * Produces 100% authentic, human-grade Hindi and Hinglish pronunciation.
  */
 
 class SpeechService {
@@ -11,8 +11,8 @@ class SpeechService {
     this.isSpeaking = false;
     this.muted = false;
     this.currentAudio = null;
-    this.voiceMode = 'indian_hindi'; // 'indian_hindi' | 'indian_english' | 'browser_native'
-    this.selectedLanguage = 'hi-IN'; // 'hi-IN' or 'en-IN'
+    this.voiceMode = 'swara_hindi'; // 'swara_hindi' | 'madhur_hindi' | 'neerja_english' | 'browser_native'
+    this.selectedLanguage = 'hi-IN';
     this.onResultCallback = null;
     this.onStatusChangeCallback = null;
     this.speechSynthesis = typeof window !== 'undefined' ? window.speechSynthesis : null;
@@ -36,10 +36,7 @@ class SpeechService {
   initRecognition() {
     if (typeof window === 'undefined') return;
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('SpeechRecognition API not supported.');
-      return;
-    }
+    if (!SpeechRecognition) return;
 
     try {
       this.recognition = new SpeechRecognition();
@@ -61,7 +58,7 @@ class SpeechService {
       };
 
       this.recognition.onerror = (event) => {
-        console.warn('Speech recognition notice:', event.error);
+        console.warn('Recognition notice:', event.error);
         this.isListening = false;
         if (this.onStatusChangeCallback) this.onStatusChangeCallback('idle');
       };
@@ -109,9 +106,6 @@ class SpeechService {
       this.recognition.start();
       return true;
     } catch (err) {
-      if (err.name !== 'InvalidStateError') {
-        console.warn('Recognition start warning:', err);
-      }
       return false;
     }
   }
@@ -128,8 +122,7 @@ class SpeechService {
   }
 
   /**
-   * Main Speak Method
-   * Prioritizes high-fidelity authentic Indian voice (Hindi/Hinglish)
+   * Speak with Neural Indian Accent
    */
   speak(textOptions, onStart, onEnd) {
     if (this.muted) {
@@ -137,11 +130,9 @@ class SpeechService {
       return;
     }
 
-    // Stop listening while speaking to prevent echo
     this.stopListening();
     this.stopSpeaking();
 
-    // Extract speech text and phonetics
     let spokenText = '';
     let phoneticHindi = '';
 
@@ -152,47 +143,59 @@ class SpeechService {
       spokenText = textOptions || '';
     }
 
-    // If using Indian voice mode, stream via authentic Indian voice endpoint
-    if (this.voiceMode !== 'browser_native') {
-      const targetLang = this.voiceMode === 'indian_english' ? 'en-IN' : 'hi';
-      const textToStream = (targetLang === 'hi' && phoneticHindi) ? phoneticHindi : spokenText;
-
-      try {
-        const audioUrl = `/api/tts?ie=UTF-8&tl=${targetLang}&client=tw-ob&q=${encodeURIComponent(textToStream)}`;
-        const audio = new Audio(audioUrl);
-        this.currentAudio = audio;
-
-        audio.onplay = () => {
-          this.isSpeaking = true;
-          if (onStart) onStart();
-          if (this.onStatusChangeCallback) this.onStatusChangeCallback('speaking');
-        };
-
-        audio.onended = () => {
-          this.isSpeaking = false;
-          this.currentAudio = null;
-          if (onEnd) onEnd();
-          if (this.onStatusChangeCallback) this.onStatusChangeCallback('idle');
-        };
-
-        audio.onerror = (e) => {
-          console.warn('Audio stream fallback to browser speech synthesis:', e);
-          this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
-        };
-
-        audio.play().catch(err => {
-          console.warn('Direct audio play error:', err);
-          this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
-        });
-
-        return;
-      } catch (e) {
-        console.warn('Audio engine error, using fallback:', e);
-      }
+    // If browser_native selected explicitly
+    if (this.voiceMode === 'browser_native') {
+      this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+      return;
     }
 
-    // Fallback to browser SpeechSynthesis
-    this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+    // Map to Azure Edge Neural Voices
+    let voiceParam = 'hi-IN-SwaraNeural';
+    let textToSend = phoneticHindi || spokenText;
+
+    if (this.voiceMode === 'madhur_hindi') {
+      voiceParam = 'hi-IN-MadhurNeural';
+      textToSend = phoneticHindi || spokenText;
+    } else if (this.voiceMode === 'neerja_english') {
+      voiceParam = 'en-IN-NeerjaNeural';
+      textToSend = spokenText;
+    } else {
+      // Default: Swara Neural (Highest quality Hindi female voice)
+      voiceParam = 'hi-IN-SwaraNeural';
+      textToSend = phoneticHindi || spokenText;
+    }
+
+    try {
+      const url = `/api/tts?voice=${encodeURIComponent(voiceParam)}&text=${encodeURIComponent(textToSend)}`;
+      const audio = new Audio(url);
+      this.currentAudio = audio;
+
+      audio.onplay = () => {
+        this.isSpeaking = true;
+        if (onStart) onStart();
+        if (this.onStatusChangeCallback) this.onStatusChangeCallback('speaking');
+      };
+
+      audio.onended = () => {
+        this.isSpeaking = false;
+        this.currentAudio = null;
+        if (onEnd) onEnd();
+        if (this.onStatusChangeCallback) this.onStatusChangeCallback('idle');
+      };
+
+      audio.onerror = (err) => {
+        console.warn('Audio endpoint playback error, fallback to browser TTS:', err);
+        this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+      };
+
+      audio.play().catch(err => {
+        console.warn('Direct play error:', err);
+        this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+      });
+    } catch (e) {
+      console.warn('TTS streaming exception:', e);
+      this.fallbackBrowserSpeak(spokenText, onStart, onEnd);
+    }
   }
 
   fallbackBrowserSpeak(text, onStart, onEnd) {
@@ -206,13 +209,12 @@ class SpeechService {
     utterance.rate = 0.95;
     utterance.pitch = 1.05;
 
-    // Pick best matching voice
     if (this.voices.length === 0) {
       this.voices = this.speechSynthesis.getVoices();
     }
 
     const indianVoice = this.voices.find(v => 
-      (v.lang.includes('IN') || v.lang.includes('hi') || v.name.toLowerCase().includes('india') || v.name.toLowerCase().includes('heera') || v.name.toLowerCase().includes('swara') || v.name.toLowerCase().includes('neerja') || v.name.toLowerCase().includes('ravi') || v.name.toLowerCase().includes('google हिन्दी'))
+      (v.lang.includes('IN') || v.lang.includes('hi') || v.name.toLowerCase().includes('swara') || v.name.toLowerCase().includes('neerja') || v.name.toLowerCase().includes('heera') || v.name.toLowerCase().includes('hindi'))
     );
 
     if (indianVoice) {
